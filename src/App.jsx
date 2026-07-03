@@ -21,11 +21,11 @@ function App() {
     const [editingDesc, setEditingDesc] = useState('');
     const [editingCatId, setEditingCatId] = useState('');
 
-    // Integration States
-    const [activePanel, setActivePanel] = useState(null); // 'clickup' | 'linear' | null
+    const [activePanel, setActivePanel] = useState(null);
     const [clickupListId, setClickupListId] = useState('');
     const [linearTeamId, setLinearTeamId] = useState('');
     const [syncing, setSyncing] = useState(false);
+    const [syncStatus, setSyncStatus] = useState({ message: '', isError: false });
 
     useEffect(() => {
         Promise.all([
@@ -108,46 +108,61 @@ function App() {
             .catch(err => console.error("Error destroying task records:", err));
     };
 
-    // Integration Sync Handlers
     const handleClickUpSync = (type) => {
-        if (!clickupListId.trim()) return alert("Please enter a ClickUp List ID first!");
+        if (!clickupListId.trim()) {
+            setSyncStatus({ message: "Please enter a ClickUp List ID first!", isError: true });
+            return;
+        }
         setSyncing(true);
+        setSyncStatus({ message: "Processing sync... please wait.", isError: false });
 
         const endpoint = type === 'import' ? 'import' : 'export';
         const payload = { clickup_list_id: clickupListId };
 
         axios.post(`${API_URL}/api/integration/clickup/${endpoint}`, payload)
             .then(res => {
-                alert(type === 'import'
-                    ? `Imported ${res.data.imported} items successfully!`
-                    : `Exported ${res.data.exported} tasks cleanly!`
-                );
+                const count = type === 'import' ? res.data.imported : res.data.exported;
+                const actionVerb = type === 'import' ? 'imported' : 'exported';
+
+                setSyncStatus({
+                    message: `All ${count ?? 0} tasks ${actionVerb} successfully!`,
+                    isError: false
+                });
+
                 if (type === 'import' && res.data.imported > 0) {
                     axios.get(`${API_URL}/api/tasks`).then(r => setTasks(r.data));
                 }
             })
-            .catch(() => alert(`ClickUp ${endpoint} failed`))
+            .catch(() => setSyncStatus({ message: `ClickUp ${endpoint} failed`, isError: true }))
             .finally(() => setSyncing(false));
     };
 
     const handleLinearSync = (type) => {
-        if (!linearTeamId.trim()) return alert("Please enter a Linear Team ID first!");
+        if (!linearTeamId.trim()) {
+            setSyncStatus({ message: "Please enter a Linear Team ID first!", isError: true });
+            return;
+        }
         setSyncing(true);
+        setSyncStatus({ message: "Processing sync... please wait.", isError: false });
 
         const endpoint = type === 'import' ? 'import' : 'export';
         const payload = { linear_team_id: linearTeamId };
 
         axios.post(`${API_URL}/api/integration/linear/${endpoint}`, payload)
             .then(res => {
-                alert(type === 'import'
-                    ? `Imported ${res.data.imported} items successfully!`
-                    : `Exported ${res.data.exported} tasks cleanly!`
-                );
+                const count = type === 'import' ? res.data.imported : res.data.exported;
+                const actionVerb = type === 'import' ? 'imported' : 'exported';
+
+                setSyncStatus({
+                    message: `All ${count ?? 0} tasks ${actionVerb} successfully!`,
+                    isError: false
+                });
+
                 if (type === 'import' && res.data.imported > 0) {
                     axios.get(`${API_URL}/api/tasks`).then(r => setTasks(r.data));
                 }
             })
-            .catch(() => alert(`Linear ${endpoint} failed`))
+            .catch(() => setSyncStatus({ message: `Linear ${endpoint} failed`, isError: true }))
             .finally(() => setSyncing(false));
     };
 
@@ -158,9 +173,29 @@ function App() {
 
     return (
         <div style={{ padding: '40px', fontFamily: 'sans-serif', maxWidth: '700px', margin: 'auto' }}>
+            <style>
+                {`
+                    @keyframes rotation {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    .loader {
+                        --color-1: #B677E2;
+                        --size: 0.5px;
+                        width: calc(48 * var(--size));
+                        height: calc(48 * var(--size));
+                        border: calc(5 * var(--size)) solid var(--color-1);
+                        border-bottom-color: transparent;
+                        border-radius: 50%;
+                        display: inline-block;
+                        box-sizing: border-box;
+                        animation: rotation 1s linear infinite;
+                    }
+                `}
+            </style>
+
             <h1 style={{ color: '#4F46E5', textAlign: 'center', marginBottom: '30px' }}>Task Planner Board</h1>
 
-            {/* INTEGRATION PANEL COMPONENT */}
             <div style={{ background: '#F3F4F6', padding: '20px', borderRadius: '12px', marginBottom: '25px', border: '1px solid #E5E7EB' }}>
                 <h3 style={{ margin: '0 0 15px 0', color: '#1F2937', textAlign: 'center', fontSize: '16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     External Third-Party Integrations
@@ -168,7 +203,10 @@ function App() {
 
                 <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
                     <button
-                        onClick={() => setActivePanel(activePanel === 'clickup' ? null : 'clickup')}
+                        onClick={() => {
+                            setActivePanel(activePanel === 'clickup' ? null : 'clickup');
+                            setSyncStatus({ message: '', isError: false });
+                        }}
                         style={{
                             background: activePanel === 'clickup' ? '#7B61FF' : 'white',
                             color: activePanel === 'clickup' ? 'white' : '#7B61FF',
@@ -187,7 +225,10 @@ function App() {
                     </button>
 
                     <button
-                        onClick={() => setActivePanel(activePanel === 'linear' ? null : 'linear')}
+                        onClick={() => {
+                            setActivePanel(activePanel === 'linear' ? null : 'linear');
+                            setSyncStatus({ message: '', isError: false });
+                        }}
                         style={{
                             background: activePanel === 'linear' ? '#5E6AD2' : 'white',
                             color: activePanel === 'linear' ? 'white' : '#5E6AD2',
@@ -206,7 +247,6 @@ function App() {
                     </button>
                 </div>
 
-                {/* DYNAMIC POP-DOWN DRAWER CONTROLS */}
                 {activePanel && (
                     <div style={{ marginTop: '20px', background: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {activePanel === 'clickup' ? (
@@ -216,7 +256,10 @@ function App() {
                                     type="text"
                                     placeholder="Enter ClickUp List ID (e.g., 901219246639)"
                                     value={clickupListId}
-                                    onChange={(e) => setClickupListId(e.target.value)}
+                                    onChange={(e) => {
+                                        setClickupListId(e.target.value);
+                                        setSyncStatus({ message: '', isError: false });
+                                    }}
                                     style={{ padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '14px' }}
                                     disabled={syncing}
                                 />
@@ -224,16 +267,16 @@ function App() {
                                     <button
                                         onClick={() => handleClickUpSync('import')}
                                         disabled={syncing}
-                                        style={{ background: '#7B61FF', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1 }}
+                                        style={{ background: '#7B61FF', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                                     >
-                                        {syncing ? 'Processing...' : 'Import Tasks'}
+                                        {syncing ? <><span className="loader" style={{ '--color-1': '#ffffff' }}></span> Syncing...</> : 'Import Tasks'}
                                     </button>
                                     <button
                                         onClick={() => handleClickUpSync('export')}
                                         disabled={syncing}
-                                        style={{ background: '#4B5563', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1 }}
+                                        style={{ background: '#4B5563', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                                     >
-                                        {syncing ? 'Processing...' : 'Export All'}
+                                        {syncing ? <><span className="loader" style={{ '--color-1': '#ffffff' }}></span> Uploading...</> : 'Export All'}
                                     </button>
                                 </div>
                             </>
@@ -244,7 +287,10 @@ function App() {
                                     type="text"
                                     placeholder="Enter Linear Team ID Key (e.g., ABC)"
                                     value={linearTeamId}
-                                    onChange={(e) => setLinearTeamId(e.target.value)}
+                                    onChange={(e) => {
+                                        setLinearTeamId(e.target.value);
+                                        setSyncStatus({ message: '', isError: false });
+                                    }}
                                     style={{ padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '14px' }}
                                     disabled={syncing}
                                 />
@@ -252,25 +298,45 @@ function App() {
                                     <button
                                         onClick={() => handleLinearSync('import')}
                                         disabled={syncing}
-                                        style={{ background: '#5E6AD2', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1 }}
+                                        style={{ background: '#5E6AD2', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                                     >
-                                        {syncing ? 'Processing...' : 'Import Tasks'}
+                                        {syncing ? <><span className="loader" style={{ '--color-1': '#ffffff' }}></span> Syncing...</> : 'Import Tasks'}
                                     </button>
                                     <button
                                         onClick={() => handleLinearSync('export')}
                                         disabled={syncing}
-                                        style={{ background: '#4B5563', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1 }}
+                                        style={{ background: '#4B5563', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', flex: 1, opacity: syncing ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                                     >
-                                        {syncing ? 'Processing...' : 'Export All'}
+                                        {syncing ? <><span className="loader" style={{ '--color-1': '#ffffff' }}></span> Uploading...</> : 'Export All'}
                                     </button>
                                 </div>
                             </>
+                        )}
+
+                        {syncStatus.message && (
+                            <div style={{
+                                marginTop: '10px',
+                                textAlign: 'center',
+                                padding: '8px',
+                                borderRadius: '6px',
+                                fontSize: '14px',
+                                fontWeight: 'bold',
+                                color: syncStatus.isError ? '#EF4444' : '#10B981',
+                                background: syncStatus.isError ? '#FEF2F2' : '#ECFDF5',
+                                border: syncStatus.isError ? '1px solid #FEE2E2' : '1px solid #D1FAE5',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '10px'
+                            }}>
+                                {!syncStatus.isError && syncing && <span className="loader"></span>}
+                                <span>{syncStatus.message}</span>
+                            </div>
                         )}
                     </div>
                 )}
             </div>
 
-            {/* TASK AND CATEGORY FORMS */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
                 <form onSubmit={handleAddTask} style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: '#F9FAFB', padding: '15px', borderRadius: '8px', border: '1px solid #E5E7EB' }}>
                     <h3 style={{ margin: '0 0 5px 0', color: '#1F2937' }}>New Task</h3>
@@ -290,7 +356,6 @@ function App() {
                 </form>
             </div>
 
-            {/* LIST FILTER AND DISPLAY */}
             <div style={{ background: '#F3F4F6', padding: '15px', borderRadius: '8px', marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label style={{ fontWeight: 'bold', color: '#374151' }}>Viewing List Type: </label>
                 <select
