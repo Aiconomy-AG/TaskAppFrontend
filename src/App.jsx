@@ -4,6 +4,14 @@ import axios from 'axios';
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost';
 
 function App() {
+    const [token, setToken] = useState(localStorage.getItem('token') || '');
+    const [loggedInUser, setLoggedInUser] = useState(null);
+    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState(''); // Added email state
+    const [password, setPassword] = useState('');
+    const [isRegistering, setIsRegistering] = useState(false);
+    const [authError, setAuthError] = useState('');
+
     const [tasks, setTasks] = useState([]);
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -27,22 +35,84 @@ function App() {
     const [syncing, setSyncing] = useState(false);
     const [syncStatus, setSyncStatus] = useState({ message: '', isError: false });
 
+    const getAuthConfig = () => {
+        return {
+            headers: { Authorization: `Bearer ${token}` }
+        };
+    };
+
     useEffect(() => {
+        if (!token) return;
+
+        setLoading(true);
         Promise.all([
-            axios.get(`${API_URL}/api/tasks`),
-            axios.get(`${API_URL}/api/categories`)
-        ]).then(([tasksRes, catsRes]) => {
+            axios.get(`${API_URL}/api/tasks`, getAuthConfig()),
+            axios.get(`${API_URL}/api/categories`, getAuthConfig()),
+            axios.get(`${API_URL}/api/user`, getAuthConfig())
+        ]).then(([tasksRes, catsRes, userRes]) => {
             setTasks(tasksRes.data);
             setCategories(catsRes.data);
+            setLoggedInUser(userRes.data);
             setLoading(false);
-        }).catch(err => console.error("Error loading application state:", err));
-    }, []);
+        }).catch(err => {
+            console.error("Error loading application state:", err);
+            if (err.response?.status === 401) {
+                handleLogout();
+            }
+        });
+    }, [token]);
+
+    const handleAuth = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        if (!username.trim() || !password.trim()) return;
+        if (isRegistering && !email.trim()) return; // Ensure email is filled out when registering
+
+        const endpoint = isRegistering ? '/api/register' : '/api/login';
+
+        // Include email in the registration payload
+        const payload = isRegistering
+            ? { username, email, password }
+            : { username, password };
+
+        axios.post(`${API_URL}${endpoint}`, payload)
+            .then(res => {
+                const receivedToken = res.data.token || res.data.access_token;
+                if (receivedToken) {
+                    localStorage.setItem('token', receivedToken);
+                    setToken(receivedToken);
+                    setUsername('');
+                    setEmail('');
+                    setPassword('');
+                } else if (isRegistering) {
+                    setIsRegistering(false);
+                    setAuthError('Registration successful! Please log in.');
+                    setEmail('');
+                    setPassword('');
+                }
+            })
+            .catch(err => {
+                setAuthError(err.response?.data?.message || 'Authentication failed. Please check your credentials.');
+                console.error("Auth error:", err);
+            });
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        setToken('');
+        setLoggedInUser(null);
+        setTasks([]);
+        setCategories([]);
+
+        setIsRegistering(false);
+        setAuthError('');
+    };
 
     const handleAddCategory = (e) => {
         e.preventDefault();
         if (!newCategoryName.trim()) return;
 
-        axios.post(`${API_URL}/api/categories`, { name: newCategoryName })
+        axios.post(`${API_URL}/api/categories`, { name: newCategoryName }, getAuthConfig())
             .then(res => {
                 setCategories([...categories, res.data]);
                 setNewCategoryName('');
@@ -60,7 +130,7 @@ function App() {
             category_id: newTaskCatId || null
         };
 
-        axios.post(`${API_URL}/api/tasks`, payload)
+        axios.post(`${API_URL}/api/tasks`, payload, getAuthConfig())
             .then(res => {
                 setTasks([res.data, ...tasks]);
                 setNewTaskTitle('');
@@ -71,7 +141,7 @@ function App() {
     };
 
     const handleToggleTask = (task) => {
-        axios.put(`${API_URL}/api/tasks/${task.id}`, { is_completed: !task.is_completed })
+        axios.put(`${API_URL}/api/tasks/${task.id}`, { is_completed: !task.is_completed }, getAuthConfig())
             .then(res => {
                 setTasks(tasks.map(t => t.id === task.id ? res.data : t));
             })
@@ -94,7 +164,7 @@ function App() {
             category_id: editingCatId || null
         };
 
-        axios.put(`${API_URL}/api/tasks/${id}`, payload)
+        axios.put(`${API_URL}/api/tasks/${id}`, payload, getAuthConfig())
             .then(res => {
                 setTasks(tasks.map(t => t.id === id ? res.data : t));
                 setEditingTaskId(null);
@@ -103,7 +173,7 @@ function App() {
     };
 
     const handleDeleteTask = (id) => {
-        axios.delete(`${API_URL}/api/tasks/${id}`)
+        axios.delete(`${API_URL}/api/tasks/${id}`, getAuthConfig())
             .then(() => setTasks(tasks.filter(t => t.id !== id)))
             .catch(err => console.error("Error destroying task records:", err));
     };
@@ -119,7 +189,7 @@ function App() {
         const endpoint = type === 'import' ? 'import' : 'export';
         const payload = { clickup_list_id: clickupListId };
 
-        axios.post(`${API_URL}/api/integration/clickup/${endpoint}`, payload)
+        axios.post(`${API_URL}/api/integration/clickup/${endpoint}`, payload, getAuthConfig())
             .then(res => {
                 const count = type === 'import' ? res.data.imported : res.data.exported;
                 const actionVerb = type === 'import' ? 'imported' : 'exported';
@@ -130,7 +200,7 @@ function App() {
                 });
 
                 if (type === 'import' && res.data.imported > 0) {
-                    axios.get(`${API_URL}/api/tasks`).then(r => setTasks(r.data));
+                    axios.get(`${API_URL}/api/tasks`, getAuthConfig()).then(r => setTasks(r.data));
                 }
             })
             .catch(() => setSyncStatus({ message: `ClickUp ${endpoint} failed`, isError: true }))
@@ -148,7 +218,7 @@ function App() {
         const endpoint = type === 'import' ? 'import' : 'export';
         const payload = { linear_team_id: linearTeamId };
 
-        axios.post(`${API_URL}/api/integration/linear/${endpoint}`, payload)
+        axios.post(`${API_URL}/api/integration/linear/${endpoint}`, payload, getAuthConfig())
             .then(res => {
                 const count = type === 'import' ? res.data.imported : res.data.exported;
                 const actionVerb = type === 'import' ? 'imported' : 'exported';
@@ -159,7 +229,7 @@ function App() {
                 });
 
                 if (type === 'import' && res.data.imported > 0) {
-                    axios.get(`${API_URL}/api/tasks`).then(r => setTasks(r.data));
+                    axios.get(`${API_URL}/api/tasks`, getAuthConfig()).then(r => setTasks(r.data));
                 }
             })
             .catch(() => setSyncStatus({ message: `Linear ${endpoint} failed`, isError: true }))
@@ -170,6 +240,74 @@ function App() {
         if (selectedCategoryFilter === 'all') return true;
         return String(task.category_id) === String(selectedCategoryFilter);
     });
+
+    if (!token) {
+        return (
+            <div style={{ padding: '40px', fontFamily: 'sans-serif', maxWidth: '400px', margin: '100px auto', background: '#F9FAFB', borderRadius: '12px', border: '1px solid #E5E7EB', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                <h2 style={{ color: '#4F46E5', textAlign: 'center', marginBottom: '20px' }}>
+                    {isRegistering ? 'Create an Account' : 'Sign In to Board'}
+                </h2>
+
+                <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#374151' }}>Username</label>
+                        <input
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '14px' }}
+                            required
+                        />
+                    </div>
+
+                    {/* ONLY RENDER THE EMAIL FIELD IF THE USER CLICKS 'SIGN UP' */}
+                    {isRegistering && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                            <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#374151' }}>Email Address</label>
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '14px' }}
+                                required
+                            />
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#374151' }}>Password</label>
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '14px' }}
+                            required
+                        />
+                    </div>
+
+                    {authError && (
+                        <p style={{ color: '#EF4444', fontSize: '14px', margin: '0', textAlign: 'center', fontWeight: 'bold' }}>
+                            {authError}
+                        </p>
+                    )}
+
+                    <button type="submit" style={{ background: '#4F46E5', color: 'white', border: 'none', padding: '12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', marginTop: '5px' }}>
+                        {isRegistering ? 'Register' : 'Login'}
+                    </button>
+                </form>
+
+                <p style={{ textAlign: 'center', fontSize: '14px', color: '#6B7280', marginTop: '20px' }}>
+                    {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
+                    <span
+                        onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }}
+                        style={{ color: '#4F46E5', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline' }}
+                    >
+                        {isRegistering ? 'Sign In' : 'Sign Up'}
+                    </span>
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div style={{ padding: '40px', fontFamily: 'sans-serif', maxWidth: '700px', margin: 'auto' }}>
@@ -193,6 +331,22 @@ function App() {
                     }
                 `}
             </style>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ fontSize: '14px', color: '#6B7280' }}>
+                    {loggedInUser ? (
+                        <>You are logged in with user: <strong style={{ color: '#111827' }}>{loggedInUser.name}</strong></>
+                    ) : (
+                        "Loading session profiles..."
+                    )}
+                </span>
+                <button
+                    onClick={handleLogout}
+                    style={{ background: '#EF4444', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                >
+                    Logout
+                </button>
+            </div>
 
             <h1 style={{ color: '#4F46E5', textAlign: 'center', marginBottom: '30px' }}>Task Planner Board</h1>
 
